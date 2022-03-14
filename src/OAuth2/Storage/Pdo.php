@@ -39,7 +39,12 @@ class Pdo implements
      * @var array
      */
     protected $config;
-
+	
+	/**
+	 * @var string
+	 */
+	protected $stmt_prefix;
+	
     /**
      * @param mixed $connection
      * @param array $config
@@ -82,6 +87,8 @@ class Pdo implements
             'scope_table'  => 'oauth_scopes',
             'public_key_table'  => 'oauth_public_keys',
         ), $config);
+		
+		$this->stmt_prefix = (defined('DB_TYPE') && DB_TYPE === 'mssql') ? 'SET LANGUAGE English;SET DATEFORMAT YMD;' : '';
     }
 
     /**
@@ -195,12 +202,12 @@ class Pdo implements
     {
         // convert expires to datestring
         $expires = date('Y-m-d H:i:s', $expires);
-
+		
         // if it exists, update it.
         if ($this->getAccessToken($access_token)) {
-            $stmt = $this->db->prepare(sprintf('UPDATE %s SET client_id=:client_id, expires=:expires, user_id=:user_id, scope=:scope where access_token=:access_token', $this->config['access_token_table']));
+            $stmt = $this->db->prepare(sprintf($this->stmt_prefix.'UPDATE %s SET client_id=:client_id, expires=:expires, user_id=:user_id, scope=:scope where access_token=:access_token', $this->config['access_token_table']));
         } else {
-            $stmt = $this->db->prepare(sprintf('INSERT INTO %s (access_token, client_id, expires, user_id, scope) VALUES (:access_token, :client_id, :expires, :user_id, :scope)', $this->config['access_token_table']));
+            $stmt = $this->db->prepare(sprintf($this->stmt_prefix.'INSERT INTO %s (access_token, client_id, expires, user_id, scope) VALUES (:access_token, :client_id, :expires, :user_id, :scope)', $this->config['access_token_table']));
         }
 
         return $stmt->execute(compact('access_token', 'client_id', 'user_id', 'expires', 'scope'));
@@ -259,9 +266,9 @@ class Pdo implements
 
         // if it exists, update it.
         if ($this->getAuthorizationCode($code)) {
-            $stmt = $this->db->prepare($sql = sprintf('UPDATE %s SET client_id=:client_id, user_id=:user_id, redirect_uri=:redirect_uri, expires=:expires, scope=:scope where authorization_code=:code', $this->config['code_table']));
+            $stmt = $this->db->prepare($sql = sprintf($this->stmt_prefix.'UPDATE %s SET client_id=:client_id, user_id=:user_id, redirect_uri=:redirect_uri, expires=:expires, scope=:scope where authorization_code=:code', $this->config['code_table']));
         } else {
-            $stmt = $this->db->prepare(sprintf('INSERT INTO %s (authorization_code, client_id, user_id, redirect_uri, expires, scope) VALUES (:code, :client_id, :user_id, :redirect_uri, :expires, :scope)', $this->config['code_table']));
+            $stmt = $this->db->prepare(sprintf($this->stmt_prefix.'INSERT INTO %s (authorization_code, client_id, user_id, redirect_uri, expires, scope) VALUES (:code, :client_id, :user_id, :redirect_uri, :expires, :scope)', $this->config['code_table']));
         }
 
         return $stmt->execute(compact('code', 'client_id', 'user_id', 'redirect_uri', 'expires', 'scope'));
@@ -284,9 +291,9 @@ class Pdo implements
 
         // if it exists, update it.
         if ($this->getAuthorizationCode($code)) {
-            $stmt = $this->db->prepare($sql = sprintf('UPDATE %s SET client_id=:client_id, user_id=:user_id, redirect_uri=:redirect_uri, expires=:expires, scope=:scope, id_token =:id_token where authorization_code=:code', $this->config['code_table']));
+            $stmt = $this->db->prepare($sql = sprintf($this->stmt_prefix.'UPDATE %s SET client_id=:client_id, user_id=:user_id, redirect_uri=:redirect_uri, expires=:expires, scope=:scope, id_token =:id_token where authorization_code=:code', $this->config['code_table']));
         } else {
-            $stmt = $this->db->prepare(sprintf('INSERT INTO %s (authorization_code, client_id, user_id, redirect_uri, expires, scope, id_token) VALUES (:code, :client_id, :user_id, :redirect_uri, :expires, :scope, :id_token)', $this->config['code_table']));
+            $stmt = $this->db->prepare(sprintf($this->stmt_prefix.'INSERT INTO %s (authorization_code, client_id, user_id, redirect_uri, expires, scope, id_token) VALUES (:code, :client_id, :user_id, :redirect_uri, :expires, :scope, :id_token)', $this->config['code_table']));
         }
 
         return $stmt->execute(compact('code', 'client_id', 'user_id', 'redirect_uri', 'expires', 'scope', 'id_token'));
@@ -403,8 +410,8 @@ class Pdo implements
     {
         // convert expires to datestring
         $expires = date('Y-m-d H:i:s', $expires);
-
-        $stmt = $this->db->prepare(sprintf('INSERT INTO %s (refresh_token, client_id, user_id, expires, scope) VALUES (:refresh_token, :client_id, :user_id, :expires, :scope)', $this->config['refresh_token_table']));
+		
+        $stmt = $this->db->prepare(sprintf($this->stmt_prefix.'INSERT INTO %s (refresh_token, client_id, user_id, expires, scope) VALUES (:refresh_token, :client_id, :user_id, :expires, :scope)', $this->config['refresh_token_table']));
 
         return $stmt->execute(compact('refresh_token', 'client_id', 'user_id', 'expires', 'scope'));
     }
@@ -600,7 +607,7 @@ class Pdo implements
      */
     public function getPublicKey($client_id = null)
     {
-        $stmt = $this->db->prepare($sql = sprintf('SELECT public_key FROM %s WHERE client_id=:client_id OR client_id IS NULL ORDER BY client_id IS NOT NULL DESC', $this->config['public_key_table']));
+        $stmt = $this->db->prepare($sql = sprintf('SELECT public_key FROM %s WHERE client_id=:client_id OR client_id IS NULL ORDER BY CASE WHEN client_id IS NULL THEN 1 ELSE 0 END DESC, client_id DESC', $this->config['public_key_table']));
 
         $stmt->execute(compact('client_id'));
         if ($result = $stmt->fetch(\PDO::FETCH_ASSOC)) {
@@ -614,7 +621,7 @@ class Pdo implements
      */
     public function getPrivateKey($client_id = null)
     {
-        $stmt = $this->db->prepare($sql = sprintf('SELECT private_key FROM %s WHERE client_id=:client_id OR client_id IS NULL ORDER BY client_id IS NOT NULL DESC', $this->config['public_key_table']));
+        $stmt = $this->db->prepare($sql = sprintf('SELECT private_key FROM %s WHERE client_id=:client_id OR client_id IS NULL ORDER BY CASE WHEN client_id IS NULL THEN 1 ELSE 0 END DESC, client_id DESC', $this->config['public_key_table']));
 
         $stmt->execute(compact('client_id'));
         if ($result = $stmt->fetch(\PDO::FETCH_ASSOC)) {
@@ -628,7 +635,7 @@ class Pdo implements
      */
     public function getEncryptionAlgorithm($client_id = null)
     {
-        $stmt = $this->db->prepare($sql = sprintf('SELECT encryption_algorithm FROM %s WHERE client_id=:client_id OR client_id IS NULL ORDER BY client_id IS NOT NULL DESC', $this->config['public_key_table']));
+        $stmt = $this->db->prepare($sql = sprintf('SELECT encryption_algorithm FROM %s WHERE client_id=:client_id OR client_id IS NULL ORDER BY CASE WHEN client_id IS NULL THEN 1 ELSE 0 END DESC, client_id DESC', $this->config['public_key_table']));
 
         $stmt->execute(compact('client_id'));
         if ($result = $stmt->fetch(\PDO::FETCH_ASSOC)) {
